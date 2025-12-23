@@ -12,8 +12,14 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 client: AsyncOpenAI | None = None
-if OPENAI_API_KEY:
-    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+
+
+def get_openai_client() -> AsyncOpenAI | None:
+    """Lazy initialization of OpenAI client"""
+    global client
+    if client is None and OPENAI_API_KEY:
+        client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    return client
 
 
 SYSTEM_PROMPT = """
@@ -40,6 +46,7 @@ async def run_llm_agent(payload: ChatRequest) -> ChatResponse:
     of the backend. Right now it returns a simple reply; you can evolve this
     into a tool-calling / code-writing agent that generates pandas code.
     """
+    client = get_openai_client()
     if client is None:
         # Fallback behavior when API key is not configured.
         return ChatResponse(

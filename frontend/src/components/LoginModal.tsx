@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useTheme } from "../contexts/ThemeContext";
+import { authHelpers } from "../lib/supabase";
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -54,31 +55,69 @@ const LoginModal: React.FC<LoginModalProps> = ({
     return isValid;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (validateForm()) {
-      // TODO: Call backend API for login/register
-      // For now, simulate successful login
-      onLoginSuccess({
-        email,
-        name: name || email.split("@")[0],
-      });
+    if (!validateForm()) return;
+
+    try {
+      if (isLogin) {
+        // Sign in existing user
+        const { user, session } = await authHelpers.signIn(email, password);
+        
+        if (user) {
+          // Get user profile to get the name
+          try {
+            const profile = await authHelpers.getUserProfile(user.id);
+            onLoginSuccess({
+              email: user.email || email,
+              name: profile?.name || email.split("@")[0],
+            });
+          } catch {
+            // If profile doesn't exist, use email prefix as name
+            onLoginSuccess({
+              email: user.email || email,
+              name: email.split("@")[0],
+            });
+          }
+        }
+      } else {
+        // Sign up new user
+        const { user } = await authHelpers.signUp(email, password, name);
+        
+        if (user) {
+          onLoginSuccess({
+            email: user.email || email,
+            name: name,
+          });
+        }
+      }
+
       // Reset form
       setEmail("");
       setPassword("");
       setName("");
       setErrors({ email: "", password: "", name: "" });
+    } catch (error: any) {
+      // Handle authentication errors
+      const errorMessage = error.message || "Authentication failed";
+      if (errorMessage.includes("Invalid login credentials")) {
+        setErrors({ ...errors, password: "Invalid email or password" });
+      } else if (errorMessage.includes("User already registered")) {
+        setErrors({ ...errors, email: "Email already registered" });
+      } else {
+        alert(`Error: ${errorMessage}`);
+      }
     }
   };
 
-  const handleGoogleLogin = () => {
-    // TODO: Implement Google OAuth
-    console.log("Google login clicked");
-    // Simulate successful login
-    onLoginSuccess({
-      email: "user@gmail.com",
-      name: "Google User",
-    });
+  const handleGoogleLogin = async () => {
+    try {
+      await authHelpers.signInWithGoogle();
+      // The OAuth flow will redirect the user
+      // User data will be handled in the OAuth callback
+    } catch (error: any) {
+      alert(`Google sign-in failed: ${error.message}`);
+    }
   };
 
   return (
