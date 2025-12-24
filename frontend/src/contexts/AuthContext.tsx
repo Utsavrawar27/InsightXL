@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { supabase, authHelpers } from "../lib/supabase";
+import { supabase, authHelpers, isDevelopmentMode } from "../lib/supabase";
 import type { User, Session } from "@supabase/supabase-js";
 
 interface UserProfile {
@@ -28,30 +28,67 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     // Check active session on mount
     checkSession();
 
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth state changed:", event);
+    // In development mode, listen to localStorage changes
+    if (isDevelopmentMode) {
+      const handleStorageChange = () => {
+        checkSession();
+      };
       
-      if (session?.user) {
-        await loadUserProfile(session.user);
-        setSession(session);
-      } else {
-        setUser(null);
-        setSession(null);
-      }
+      window.addEventListener('storage', handleStorageChange);
       
-      setLoading(false);
-    });
+      return () => {
+        window.removeEventListener('storage', handleStorageChange);
+      };
+    }
 
-    return () => {
-      subscription.unsubscribe();
-    };
+    // Listen for auth changes (only when Supabase is configured)
+    if (!isDevelopmentMode) {
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log("Auth state changed:", event);
+        
+        if (session?.user) {
+          await loadUserProfile(session.user);
+          setSession(session);
+        } else {
+          setUser(null);
+          setSession(null);
+        }
+        
+        setLoading(false);
+      });
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    }
   }, []);
 
   const checkSession = async () => {
     try {
+      // In development mode, check localStorage for mock user
+      if (isDevelopmentMode) {
+        const mockUser = localStorage.getItem('mock_user');
+        const mockSessionData = localStorage.getItem('mock_session');
+        
+        if (mockUser && mockSessionData) {
+          const userData = JSON.parse(mockUser);
+          const sessionData = JSON.parse(mockSessionData);
+          
+          setUser({
+            id: userData.id,
+            email: userData.email,
+            name: userData.name,
+          });
+          
+          setSession(sessionData as any);
+        }
+        setLoading(false);
+        return;
+      }
+      
+      // Production mode: use Supabase
       const session = await authHelpers.getSession();
       
       if (session?.user) {

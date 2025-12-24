@@ -20,8 +20,8 @@ async def health_check():
     return {"status": "ok", "service": "InsightXL API"}
 
 
-app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
 
 
 if __name__ == "__main__":

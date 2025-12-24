@@ -7,8 +7,7 @@ interface PdfToExcelProps {
 }
 
 const PdfToExcel: React.FC<PdfToExcelProps> = ({ user, onShowLogin }) => {
-  const { theme } = useTheme();
-  const isDark = theme === "dark";
+  const { isDark } = useTheme();
   const [selectedPdf, setSelectedPdf] = useState<File | null>(null);
 
   const handlePdfUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -1,13 +1,12 @@
 import React, { useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "../contexts/ThemeContext";
+import { useAuth } from "../contexts/AuthContext";
 import LoginModal from "./LoginModal";
 import ImageToExcel from "./ImageToExcel";
 import PdfToExcel from "./PdfToExcel";
 import ExcelToDashboard from "./ExcelToDashboard";
-
-interface DashboardProps {
-  onBack?: () => void;
-}
+import ChatWithExcel from "./ChatWithExcel";
 
 interface User {
   email: string;
@@ -16,14 +15,43 @@ interface User {
 
 type ActiveFeature = "chat" | "image" | "pdf" | "dashboard";
 
-const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
-  const { theme, toggleTheme } = useTheme();
-  const isDark = theme === "dark";
+// Map URL paths to feature keys
+const pathToFeature: Record<string, ActiveFeature> = {
+  "/dashboard/chat": "chat",
+  "/dashboard/image-to-excel": "image",
+  "/dashboard/pdf-to-excel": "pdf",
+  "/dashboard/excel-to-dashboard": "dashboard",
+};
+
+// Map feature keys to URL paths
+const featureToPath: Record<ActiveFeature, string> = {
+  chat: "/dashboard/chat",
+  image: "/dashboard/image-to-excel",
+  pdf: "/dashboard/pdf-to-excel",
+  dashboard: "/dashboard/excel-to-dashboard",
+};
+
+const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { isDark, toggleTheme } = useTheme();
+  const { user, logout } = useAuth();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [chatHistoryOpen, setChatHistoryOpen] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [activeFeature, setActiveFeature] = useState<ActiveFeature>("chat");
+  const [usageStats] = useState({
+    chats: { used: 0, total: 10 },
+    imageToExcel: { used: 0, total: 10 },
+    excelToDashboard: { used: 0, total: 10 },
+  });
+
+  // Get active feature from URL path
+  const activeFeature: ActiveFeature = pathToFeature[location.pathname] || "chat";
+
+  // Navigate to feature when clicking sidebar buttons
+  const handleFeatureChange = (feature: ActiveFeature) => {
+    navigate(featureToPath[feature]);
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!user) {
@@ -38,13 +66,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
     }
   };
 
-  const handleLoginSuccess = (userData: User) => {
-    setUser(userData);
+  const handleLoginSuccess = () => {
     setShowLoginModal(false);
   };
 
-  const handleLogout = () => {
-    setUser(null);
+  const handleLogout = async () => {
+    await logout();
     setSelectedFile(null);
   };
 
@@ -84,7 +111,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
         <nav className="flex-1 overflow-y-auto p-3">
           <div className="space-y-1">
             <button
-              onClick={() => setActiveFeature("chat")}
+              onClick={() => handleFeatureChange("chat")}
               className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
                 activeFeature === "chat"
                   ? isDark
@@ -112,7 +139,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
             </button>
 
             <button
-              onClick={() => setActiveFeature("image")}
+              onClick={() => handleFeatureChange("image")}
               className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
                 activeFeature === "image"
                   ? isDark
@@ -140,7 +167,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
             </button>
 
             <button
-              onClick={() => setActiveFeature("pdf")}
+              onClick={() => handleFeatureChange("pdf")}
               className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
                 activeFeature === "pdf"
                   ? isDark
@@ -168,7 +195,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
             </button>
 
             <button
-              onClick={() => setActiveFeature("dashboard")}
+              onClick={() => handleFeatureChange("dashboard")}
               className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
                 activeFeature === "dashboard"
                   ? isDark
@@ -247,6 +274,62 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
             </div>
           </div>
         </nav>
+
+        {/* Usage Stats */}
+        {user && (
+          <div className={`border-t px-4 py-3 ${isDark ? "border-slate-700" : "border-slate-200"}`}>
+            <p className={`mb-3 text-xs font-semibold uppercase tracking-wide ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+              Free Trial Usage
+            </p>
+            <div className="space-y-2">
+              {/* Chats */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className={`rounded-lg p-1.5 ${isDark ? "bg-blue-900/40" : "bg-blue-100"}`}>
+                    <svg className={`h-4 w-4 ${isDark ? "text-blue-400" : "text-blue-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                    </svg>
+                  </div>
+                  <span className={`text-sm ${isDark ? "text-slate-300" : "text-slate-700"}`}>Chats</span>
+                </div>
+                <span className={`text-sm font-bold ${isDark ? "text-slate-100" : "text-slate-900"}`}>
+                  {usageStats.chats.used}/{usageStats.chats.total}
+                </span>
+              </div>
+              {/* Image to Excel */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className={`rounded-lg p-1.5 ${isDark ? "bg-purple-900/40" : "bg-purple-100"}`}>
+                    <svg className={`h-4 w-4 ${isDark ? "text-purple-400" : "text-purple-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <span className={`text-sm ${isDark ? "text-slate-300" : "text-slate-700"}`}>Images</span>
+                </div>
+                <span className={`text-sm font-bold ${isDark ? "text-slate-100" : "text-slate-900"}`}>
+                  {usageStats.imageToExcel.used}/{usageStats.imageToExcel.total}
+                </span>
+              </div>
+              {/* Excel to Dashboard */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className={`rounded-lg p-1.5 ${isDark ? "bg-green-900/40" : "bg-green-100"}`}>
+                    <svg className={`h-4 w-4 ${isDark ? "text-green-400" : "text-green-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                  </div>
+                  <span className={`text-sm ${isDark ? "text-slate-300" : "text-slate-700"}`}>Dashboards</span>
+                </div>
+                <span className={`text-sm font-bold ${isDark ? "text-slate-100" : "text-slate-900"}`}>
+                  {usageStats.excelToDashboard.used}/{usageStats.excelToDashboard.total}
+                </span>
+              </div>
+            </div>
+            <p className={`mt-2 text-xs ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+              Resets in 30 days
+            </p>
+          </div>
+        )}
 
         {/* Bottom Section - Login/Register or User Info */}
         <div
@@ -334,18 +417,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
           }`}
         >
           <div className="flex items-center gap-3">
-            {onBack && (
-              <button
-                onClick={onBack}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
-                  isDark
-                    ? "border-slate-600 bg-slate-700 text-slate-200 hover:bg-slate-600"
-                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                ← Back to Home
-              </button>
-            )}
+            <button
+              onClick={() => navigate("/")}
+              className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
+                isDark
+                  ? "border-slate-600 bg-slate-700 text-slate-200 hover:bg-slate-600"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              ← Back to Home
+            </button>
           </div>
           <div className="flex items-center gap-3">
             {/* Theme Toggle */}
@@ -377,143 +458,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onBack }) => {
 
         {/* Main Content - Dynamic based on active feature */}
         {activeFeature === "chat" && (
-          <div
-            className={`flex flex-1 items-center justify-center overflow-y-auto p-8 ${
-              isDark ? "bg-slate-900" : "bg-slate-50"
-            }`}
-          >
-            <div className="w-full max-w-4xl">
-            <div className="mb-8 text-center">
-              <h1
-                className={`mb-3 text-4xl font-bold ${
-                  isDark ? "text-slate-100" : "text-slate-900"
-                }`}
-              >
-                <span className="text-blue-600">Analyze Your Excel</span>{" "}
-                <span className="relative">
-                  Through A Simple Conversation
-                  <svg
-                    className="absolute -bottom-2 left-0 w-full"
-                    height="8"
-                    viewBox="0 0 400 8"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <path
-                      d="M2 6C80 2 160 2 200 3C240 4 320 4 398 6"
-                      stroke="#3b82f6"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </span>
-              </h1>
-              <p
-                className={`text-sm ${
-                  isDark ? "text-slate-400" : "text-slate-500"
-                }`}
-              >
-                No formulas. No VBA. Just upload your file, chat, and let AI
-                handle the rest
-              </p>
-            </div>
-
-            {/* Upload Box */}
-            <div
-              className={`rounded-2xl border-2 border-dashed p-12 text-center shadow-sm transition ${
-                isDark
-                  ? "border-slate-600 bg-slate-800 hover:border-blue-500"
-                  : "border-slate-300 bg-white hover:border-blue-400"
-              }`}
-            >
-              <input
-                type="file"
-                id="file-upload"
-                className="hidden"
-                accept=".xlsx,.xls,.csv"
-                onChange={handleFileUpload}
-              />
-              <label
-                htmlFor="file-upload"
-                className="flex cursor-pointer flex-col items-center"
-              >
-                {/* File Icon */}
-                <div className="mb-6">
-                  <svg
-                    className="h-20 w-20 text-slate-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.5}
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                    />
-                  </svg>
-                </div>
-
-                <p
-                  className={`mb-2 text-sm ${
-                    isDark ? "text-slate-300" : "text-slate-700"
-                  }`}
-                >
-                  Upload one or more Excel (csv) files to get started, merge,
-                  clean, modify, generate charts, etc.
-                </p>
-
-                {selectedFile && (
-                  <div className="mt-4 rounded-lg bg-blue-50 px-4 py-2 text-sm text-blue-700">
-                    Selected: {selectedFile.name}
-                  </div>
-                )}
-              </label>
-
-              <button
-                className={`mt-8 rounded-lg border px-6 py-3 text-sm font-medium transition ${
-                  isDark
-                    ? "border-slate-600 bg-slate-700 text-slate-200 hover:bg-slate-600"
-                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-                onClick={() => {
-                  if (!user) {
-                    setShowLoginModal(true);
-                  } else {
-                    document.getElementById("file-upload")?.click();
-                  }
-                }}
-              >
-                Start a conversation with my file
-              </button>
-
-              {/* Login prompt when not logged in */}
-              {!user && (
-                <div className="mt-4 flex items-center justify-center gap-2 text-sm">
-                  <svg
-                    className="h-5 w-5 text-amber-500"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                  <span className="text-slate-600">Please log in first</span>
-                </div>
-              )}
-            </div>
-
-            {/* Help Text */}
-            <div className="mt-6 text-center">
-              <p className="text-xs text-slate-400">
-                Supported formats: .xlsx, .xls, .csv • Max file size: 50MB
-              </p>
-            </div>
-          </div>
-        </div>
+          <ChatWithExcel user={user} onShowLogin={() => setShowLoginModal(true)} />
         )}
 
         {/* Image To Excel Feature */}

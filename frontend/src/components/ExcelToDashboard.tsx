@@ -10,8 +10,7 @@ const ExcelToDashboard: React.FC<ExcelToDashboardProps> = ({
   user,
   onShowLogin,
 }) => {
-  const { theme } = useTheme();
-  const isDark = theme === "dark";
+  const { isDark } = useTheme();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

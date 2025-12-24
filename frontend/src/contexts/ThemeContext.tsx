@@ -4,6 +4,7 @@ type Theme = "light" | "dark";
 
 interface ThemeContextType {
   theme: Theme;
+  isDark: boolean;
   toggleTheme: () => void;
 }
 
@@ -18,17 +19,22 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
     return (savedTheme as Theme) || "light";
   });
 
+  // Derive isDark from theme
+  const isDark = theme === "dark";
+
   // Save theme to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem("insightxl-theme", theme);
-  }, [theme]);
+    // Also update document class for global CSS
+    document.documentElement.classList.toggle("dark", isDark);
+  }, [theme, isDark]);
 
   const toggleTheme = () => {
     setTheme((prev) => (prev === "light" ? "dark" : "light"));
   };
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, isDark, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );

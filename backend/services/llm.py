@@ -79,3 +79,181 @@ async def run_llm_agent(payload: ChatRequest) -> ChatResponse:
     return ChatResponse(reply=reply)
 
 
+async def generate_suggestions(df: Any, columns: list[str], numeric_cols: list[str]) -> list[str]:
+    """
+    Generate smart suggestions based on the uploaded data.
+    Analyzes the DataFrame and returns relevant questions/operations.
+    """
+    client = get_openai_client()
+    if client is None:
+        # Fallback suggestions when API key is not configured
+        return [
+            "What is the summary statistics of the numerical columns?",
+            "Show me the first 10 rows of the data",
+            "Create a visualization of the data distribution"
+        ]
+    
+    # Prepare data context
+    data_info = f"""
+Data Overview:
+- Total Rows: {len(df)}
+- Columns: {', '.join(columns[:10])}{'...' if len(columns) > 10 else ''}
+- Numeric Columns: {', '.join(numeric_cols[:5])}{'...' if len(numeric_cols) > 5 else ''}
+- Sample Data (first 3 rows):
+{df.head(3).to_string()}
+"""
+    
+    system_prompt = """You are an AI assistant that generates smart, relevant questions about Excel/CSV data.
+Based on the data provided, suggest 3 specific, actionable questions that would provide valuable insights.
+Make the questions specific to the actual column names and data types in the dataset.
+Return ONLY the 3 questions, one per line, without numbering or extra formatting."""
+    
+    try:
+        completion = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": data_info},
+            ],
+            temperature=0.7,
+            max_tokens=200,
+        )
+        
+        suggestions_text = completion.choices[0].message.content or ""
+        # Split by newlines and filter empty lines
+        suggestions = [s.strip() for s in suggestions_text.strip().split('\n') if s.strip()]
+        
+        # Return up to 3 suggestions
+        return suggestions[:3] if suggestions else [
+            "What are the key insights from this data?",
+            "Can you show me summary statistics?",
+            "What patterns do you see in the data?"
+        ]
+    except Exception as e:
+        print(f"Error generating suggestions: {e}")
+        return [
+            "What are the key insights from this data?",
+            "Can you show me summary statistics?",
+            "What patterns do you see in the data?"
+        ]
+
+
+async def answer_query_with_context(query: str, dataframe: Any, file_info: dict) -> str:
+    """
+    Answer a user query using ONLY the provided DataFrame context.
+    This prevents hallucinations by grounding responses in actual data.
+    """
+    client = get_openai_client()
+    if client is None:
+        return "InsightXL is not fully configured yet (missing OpenAI API key). Please configure the API key to use this feature."
+    
+    # Prepare comprehensive data context
+    df = dataframe
+    
+    # Get data summary - send more data for better analysis
+    # For small datasets (< 100 rows), send all data
+    # For large datasets, send first 50 rows + summary
+    max_rows_to_show = 100 if len(df) <= 100 else 50
+    
+    data_display = df.head(max_rows_to_show).to_string(index=False)
+    rows_info = f"ALL {len(df)} ROWS" if len(df) <= max_rows_to_show else f"FIRST {max_rows_to_show} OF {len(df)} ROWS"
+    
+    data_summary = f"""
+FILE: {file_info['filename']}
+SHAPE: {file_info['row_count']} rows × {file_info['column_count']} columns
+
+COLUMNS AND TYPES:
+{chr(10).join([f"- {col}: {dtype}" for col, dtype in file_info['dtypes'].items()])}
+
+COMPLETE DATA ({rows_info}):
+{data_display}
+
+STATISTICAL SUMMARY (numeric columns):
+{df.describe().to_string() if not df.select_dtypes(include=['number']).empty else 'No numeric columns'}
+"""
+    
+    system_prompt = """You are a Senior Data Analyst for a Fortune 500 company. 
+Your job is to analyze data and produce professional, executive-level reports.
+
+CRITICAL RULES:
+1. Answer questions ONLY based on the provided data context
+2. NEVER make up or hallucinate information that isn't in the data
+3. You have access to the COMPLETE dataset - use ALL rows when analyzing
+4. When performing calculations, analyze ALL records in the dataset
+5. When ranking or sorting, include ALL items from the data
+
+MANDATORY REPORT FORMAT - You MUST follow this structure for EVERY response:
+
+## [Professional Title for the Analysis]
+
+### Summary
+A 2-3 sentence executive summary of what this data shows and the key insight.
+
+### Methodology
+Briefly explain how you sorted, filtered, or calculated the data (e.g., "Data was sorted in descending order by Annual Salary column").
+
+### Findings
+
+**Key Observations:**
+- Analyze trends (e.g., "The top 10% earn X% of total compensation...")
+- Mention the highest and lowest values explicitly with names and amounts
+- Note any interesting patterns or outliers
+
+**Data Results:**
+
+| Column1 | Column2 | Column3 | Column4 |
+|---------|---------|---------|---------|
+| value   | value   | value   | value   |
+
+⚠️ **MANDATORY:** You MUST display ALL relevant data in a properly formatted Markdown table with headers.
+Include ALL records when showing rankings or lists - never truncate.
+
+### Conclusions
+A strategic recommendation or insight based on the data. What actions could be taken? What does this data suggest for decision-making?
+
+---
+
+FORMATTING RULES:
+- Always use Markdown tables (with | and - characters) for data display
+- Use **bold** for important values and names
+- Use proper headings (##, ###) for sections
+- Include specific numbers, percentages, and comparisons
+- Never just list data - always tell a story with analysis and context
+
+TONE: Professional, objective, insightful, and executive-ready.
+Never give a simple list. Always provide a complete analytical report."""
+    
+    user_message = f"""DATA CONTEXT:
+{data_summary}
+
+USER QUESTION: {query}
+
+MANDATORY INSTRUCTIONS:
+1. Use ALL {file_info['row_count']} rows of data in your analysis - do not truncate or omit any records
+2. Follow the EXACT report format: Title → Summary → Methodology → Findings (with Markdown table) → Conclusions
+3. You MUST include a properly formatted Markdown table showing all relevant data
+4. Provide executive-level analysis, not just a list
+5. Include insights, trends, and strategic recommendations
+6. Reference specific values, names, and percentages from the data
+
+Remember: You are a Senior Data Analyst. Produce a professional report, not a simple list."""
+    
+    try:
+        completion = await client.chat.completions.create(
+            model="gpt-4o",  # Use GPT-4o for better reasoning
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=0.3,  # Lower temperature for more focused responses
+            max_tokens=2000,  # Increased for detailed responses with complete data
+        )
+        
+        response = completion.choices[0].message.content or "I couldn't generate a response. Please try again."
+        return response
+    
+    except Exception as e:
+        print(f"Error answering query: {e}")
+        return f"I encountered an error while processing your question: {str(e)}. Please try rephrasing your question or try again."
+
+

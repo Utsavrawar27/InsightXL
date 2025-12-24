@@ -7,8 +7,7 @@ interface ImageToExcelProps {
 }
 
 const ImageToExcel: React.FC<ImageToExcelProps> = ({ user, onShowLogin }) => {
-  const { theme } = useTheme();
-  const isDark = theme === "dark";
+  const { isDark } = useTheme();
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
 

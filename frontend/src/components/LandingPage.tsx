@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import { useTheme } from "../contexts/ThemeContext";
 
 const sections = {
@@ -12,13 +13,9 @@ const scrollTo = (id: string) => {
   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
 };
 
-interface LandingPageProps {
-  onGetStarted: () => void;
-}
-
-const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
-  const { theme, toggleTheme } = useTheme();
-  const isDark = theme === "dark";
+const LandingPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { isDark, toggleTheme } = useTheme();
 
   return (
     <div
@@ -83,7 +80,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
               <span>{isDark ? "🌙 Night" : "☀ Day"}</span>
             </button>
             <button
-              onClick={onGetStarted}
+              onClick={() => navigate("/dashboard/chat")}
               className="rounded-full bg-sky-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow-sm shadow-sky-500/40 transition hover:bg-sky-400"
             >
               Try InsightXL
@@ -127,7 +124,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3 text-xs">
               <button
-                onClick={onGetStarted}
+                onClick={() => navigate("/dashboard/chat")}
                 className="rounded-full bg-sky-500 px-6 py-2.5 text-xs font-semibold text-slate-950 shadow-sm shadow-sky-500/40 transition hover:bg-sky-400"
               >
                 Start free
@@ -1050,7 +1047,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                 <button
                   onClick={() => {
                     if (plan.name === "Starter") {
-                      onGetStarted();
+                      navigate("/dashboard/chat");
                     }
                   }}
                   className={`mt-auto rounded-full px-4 py-2 text-xs font-semibold transition ${
