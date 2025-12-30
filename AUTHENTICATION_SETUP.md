@@ -228,3 +228,4 @@ Once configured, you'll have:
 For more help, see: [Supabase Documentation](https://supabase.com/docs/guides/auth)
 
 
+

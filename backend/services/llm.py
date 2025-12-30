@@ -138,11 +138,184 @@ Return ONLY the 3 questions, one per line, without numbering or extra formatting
         ]
 
 
+def is_chart_request(query: str) -> bool:
+    """
+    Detect if the user is requesting a chart/visualization.
+    """
+    chart_keywords = [
+        "chart", "graph", "plot", "visualize", "visualization", "draw",
+        "bar chart", "pie chart", "line chart", "area chart", "radar",
+        "histogram", "scatter", "donut", "treemap", "heatmap",
+        "show me a", "create a", "make a", "generate a", "display a"
+    ]
+    query_lower = query.lower()
+    
+    # Check for chart-related keywords
+    for keyword in chart_keywords:
+        if keyword in query_lower:
+            return True
+    
+    return False
+
+
+async def generate_chart_data(query: str, dataframe: Any, file_info: dict) -> str:
+    """
+    Generate chart data JSON for visualization requests.
+    Returns a JSON string that the frontend can parse and render as a chart.
+    """
+    import json
+    
+    client = get_openai_client()
+    if client is None:
+        return json.dumps({
+            "type": "error",
+            "message": "InsightXL is not configured (missing OpenAI API key)."
+        })
+    
+    df = dataframe
+    
+    # Prepare column information
+    columns_info = list(df.columns)
+    sample_data = df.head(10).to_dict('records')
+    
+    data_context = f"""
+AVAILABLE COLUMNS: {columns_info}
+
+SAMPLE DATA (first 10 rows):
+{json.dumps(sample_data, default=str, indent=2)}
+
+TOTAL ROWS: {len(df)}
+"""
+    
+    system_prompt = """You are a Chart Data Generator. Your ONLY job is to output valid JSON for chart visualization.
+
+When the user requests a chart, you MUST:
+1. Analyze the data to find the appropriate columns
+2. Extract the actual data values from the dataset
+3. Return a JSON object with the chart configuration
+
+OUTPUT FORMAT - Return ONLY this JSON structure, nothing else:
+
+{
+  "type": "chart",
+  "chartType": "bar" | "line" | "pie" | "area" | "radar",
+  "title": "A descriptive title for the chart",
+  "description": "Brief explanation of what this chart shows",
+  "xAxisLabel": "Label for X-axis",
+  "yAxisLabel": "Label for Y-axis", 
+  "data": [
+    {"name": "Category1", "value": 100},
+    {"name": "Category2", "value": 200}
+  ],
+  "insights": ["Key insight 1", "Key insight 2", "Key insight 3"]
+}
+
+CHART TYPE MAPPING:
+- "bar chart", "bar", "column" → "bar"
+- "line chart", "line", "trend" → "line"  
+- "pie chart", "pie", "donut" → "pie"
+- "area chart", "area" → "area"
+- "radar chart", "radar", "spider" → "radar"
+
+CRITICAL RULES:
+1. Output ONLY valid JSON - no markdown, no explanation, no extra text
+2. Use the ACTUAL data values from the dataset
+3. The "data" array should contain real values from the spreadsheet
+4. For pie/donut charts, use "name" and "value" keys
+5. For bar/line/area charts, use the actual column names as keys
+6. Include 3 meaningful insights about the chart data
+
+EXAMPLE for a bar chart request with "Full Name" on x-axis and "Annual Salary" on y-axis:
+{
+  "type": "chart",
+  "chartType": "bar",
+  "title": "Employee Annual Salaries",
+  "description": "Comparison of annual salaries across all employees",
+  "xAxisLabel": "Full Name",
+  "yAxisLabel": "Annual Salary ($)",
+  "data": [
+    {"name": "John Smith", "value": 95000},
+    {"name": "Jane Doe", "value": 85000}
+  ],
+  "insights": [
+    "Highest salary: John Smith at $95,000",
+    "Salary range spans from $X to $Y",
+    "Average salary is approximately $Z"
+  ]
+}
+
+Remember: OUTPUT ONLY THE JSON OBJECT. No other text."""
+
+    user_message = f"""DATA CONTEXT:
+{data_context}
+
+FULL DATA FOR CHART (use ALL rows):
+{df.to_json(orient='records', default_handler=str)}
+
+USER REQUEST: {query}
+
+Generate the chart JSON using the ACTUAL data from the spreadsheet. Include ALL data points."""
+
+    try:
+        completion = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=0.1,  # Very low for consistent JSON output
+            max_tokens=3000,
+        )
+        
+        response = completion.choices[0].message.content or ""
+        
+        # Clean up the response - remove markdown code blocks if present
+        response = response.strip()
+        if response.startswith("```json"):
+            response = response[7:]
+        if response.startswith("```"):
+            response = response[3:]
+        if response.endswith("```"):
+            response = response[:-3]
+        response = response.strip()
+        
+        # Validate it's valid JSON
+        try:
+            parsed = json.loads(response)
+            # Ensure it has the chart type marker
+            if "type" not in parsed:
+                parsed["type"] = "chart"
+            return json.dumps(parsed)
+        except json.JSONDecodeError:
+            # If JSON parsing fails, return error
+            return json.dumps({
+                "type": "error",
+                "message": "Failed to generate chart data. Please try rephrasing your request."
+            })
+        
+    except Exception as e:
+        print(f"Error generating chart: {e}")
+        return json.dumps({
+            "type": "error",
+            "message": f"Error generating chart: {str(e)}"
+        })
+
+
 async def answer_query_with_context(query: str, dataframe: Any, file_info: dict) -> str:
     """
     Answer a user query using ONLY the provided DataFrame context.
     This prevents hallucinations by grounding responses in actual data.
+    
+    Has TWO MODES:
+    1. CHART MODE: If user requests a chart, return JSON for visualization
+    2. ANALYSIS MODE: For all other queries, return professional text report
     """
+    
+    # Check if this is a chart request
+    if is_chart_request(query):
+        return await generate_chart_data(query, dataframe, file_info)
+    
+    # Otherwise, continue with analysis mode
     client = get_openai_client()
     if client is None:
         return "InsightXL is not fully configured yet (missing OpenAI API key). Please configure the API key to use this feature."

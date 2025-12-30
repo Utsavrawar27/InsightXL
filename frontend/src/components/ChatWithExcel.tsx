@@ -3,17 +3,40 @@ import { useTheme } from "../contexts/ThemeContext";
 import { User } from "@supabase/supabase-js";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Paperclip, Send } from "lucide-react";
+import FileManagerModal from "./FileManagerModal";
+import ChartSelectorPopover from "./ChartSelectorPopover";
+import ChartRenderer from "./ChartRenderer";
+
+interface ChartData {
+  type: "chart";
+  chartType: "bar" | "line" | "pie" | "area" | "radar";
+  title: string;
+  description: string;
+  xAxisLabel?: string;
+  yAxisLabel?: string;
+  data: Array<{ name: string; value: number; [key: string]: any }>;
+  insights?: string[];
+}
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  chartData?: ChartData;
   timestamp: Date;
 }
 
 interface ChatWithExcelProps {
   user: User | null;
   onShowLogin: () => void;
+}
+
+interface UploadedFileRef {
+  id: string;
+  name: string;
+  uploadTime: Date;
+  size: number;
 }
 
 const ChatWithExcel: React.FC<ChatWithExcelProps> = ({ user, onShowLogin }) => {
@@ -25,8 +48,10 @@ const ChatWithExcel: React.FC<ChatWithExcelProps> = ({ user, onShowLogin }) => {
   const [inputMessage, setInputMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isFileModalOpen, setIsFileModalOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -146,10 +171,29 @@ const ChatWithExcel: React.FC<ChatWithExcelProps> = ({ user, onShowLogin }) => {
 
       const data = await response.json();
 
+      // Check if the response is chart data (JSON)
+      let chartData: ChartData | undefined;
+      let textContent = data.response;
+
+      try {
+        // Try to parse as JSON chart data
+        const parsed = JSON.parse(data.response);
+        if (parsed.type === "chart" && parsed.chartType && parsed.data) {
+          chartData = parsed as ChartData;
+          textContent = ""; // No text content for chart responses
+        } else if (parsed.type === "error") {
+          textContent = parsed.message || "An error occurred.";
+        }
+      } catch {
+        // Not JSON, treat as regular text response
+        chartData = undefined;
+      }
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: data.response,
+        content: textContent,
+        chartData,
         timestamp: new Date(),
       };
 
@@ -175,6 +219,64 @@ const ChatWithExcel: React.FC<ChatWithExcelProps> = ({ user, onShowLogin }) => {
     setMessages([]);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
+    }
+  };
+
+  const handleChartPromptSelect = (prompt: string) => {
+    setInputMessage(prompt);
+    // Focus on the input after selecting a chart template
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 100);
+  };
+
+  const handleFileModalUpload = async (file: File): Promise<UploadedFileRef | null> => {
+    if (!user) {
+      onShowLogin();
+      return null;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("http://localhost:8000/chat/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to upload file");
+      }
+
+      const data = await response.json();
+      return {
+        id: data.file_id || Date.now().toString(),
+        name: file.name,
+        uploadTime: new Date(),
+        size: file.size,
+      };
+    } catch (error) {
+      console.error("Error uploading file:", error);
+      return null;
+    }
+  };
+
+  const handleFilesConfirm = (files: UploadedFileRef[], prompt: string) => {
+    setInputMessage(prompt);
+    if (files.length > 0) {
+      // Set the first file as the active file for context
+      setFileData({ file_id: files[0].id });
+    }
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 100);
+  };
+
+  const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage(e as unknown as React.FormEvent);
     }
   };
 
@@ -392,7 +494,13 @@ const ChatWithExcel: React.FC<ChatWithExcelProps> = ({ user, onShowLogin }) => {
                           {message.content}
                         </p>
                       </div>
+                    ) : message.chartData ? (
+                      /* Chart Response */
+                      <div className="w-full max-w-4xl">
+                        <ChartRenderer chartData={message.chartData} />
+                      </div>
                     ) : (
+                      /* Text Response */
                       <div
                         className={`max-w-4xl rounded-2xl px-6 py-4 ${
                           isDark
@@ -606,53 +714,95 @@ const ChatWithExcel: React.FC<ChatWithExcelProps> = ({ user, onShowLogin }) => {
             )}
           </div>
 
-          {/* Input Area */}
+          {/* Professional Input Area */}
           <div
             className={`border-t p-4 ${
               isDark ? "border-slate-700 bg-slate-800/50" : "border-slate-200 bg-slate-50"
             }`}
           >
-            <form onSubmit={handleSendMessage} className="flex gap-3">
-              <input
-                type="text"
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                placeholder="Ask a question about your data..."
-                disabled={isLoading || isAnalyzing}
-                className={`flex-1 rounded-lg border px-4 py-3 text-sm outline-none transition ${
-                  isDark
-                    ? "border-slate-600 bg-slate-700 text-slate-100 placeholder-slate-400 focus:border-blue-500"
-                    : "border-slate-300 bg-white text-slate-900 placeholder-slate-500 focus:border-blue-500"
-                } disabled:opacity-50`}
-              />
-              <button
-                type="submit"
-                disabled={isLoading || isAnalyzing || !inputMessage.trim()}
-                className="rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <svg
-                  className="h-5 w-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-                  />
-                </svg>
-              </button>
-            </form>
-            <p
-              className={`mt-2 text-xs ${
-                isDark ? "text-slate-500" : "text-slate-400"
+            {/* Input Container */}
+            <div
+              className={`rounded-2xl border transition-all ${
+                isDark
+                  ? "border-slate-600 bg-slate-800 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500"
+                  : "border-slate-200 bg-white focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500"
               }`}
             >
-              Ask questions or request operations based on your uploaded data
-            </p>
+              {/* Textarea */}
+              <div className="px-4 py-3">
+                <textarea
+                  ref={inputRef}
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  onKeyDown={handleTextareaKeyDown}
+                  placeholder="You can ask questions or perform operations on the file to be analyzed"
+                  disabled={isLoading || isAnalyzing}
+                  rows={2}
+                  className={`w-full resize-none bg-transparent text-sm outline-none ${
+                    isDark
+                      ? "text-slate-100 placeholder-slate-400"
+                      : "text-slate-900 placeholder-slate-500"
+                  } disabled:opacity-50`}
+                />
+              </div>
+
+              {/* Bottom Toolbar */}
+              <div
+                className={`flex items-center justify-between border-t px-3 py-2 ${
+                  isDark ? "border-slate-700" : "border-slate-100"
+                }`}
+              >
+                {/* Left Side - Tools */}
+                <div className="flex items-center gap-1">
+                  {/* File Attachment Button */}
+                  <button
+                    onClick={() => {
+                      if (!user) {
+                        onShowLogin();
+                      } else {
+                        setIsFileModalOpen(true);
+                      }
+                    }}
+                    className={`rounded-lg p-2 transition ${
+                      isDark
+                        ? "text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+                        : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                    }`}
+                    title="Attach files"
+                  >
+                    <Paperclip className="h-5 w-5" />
+                  </button>
+
+                  {/* Chart Selector */}
+                  <ChartSelectorPopover onSelectChart={handleChartPromptSelect} />
+                </div>
+
+                {/* Right Side - Send Button */}
+                <button
+                  onClick={(e) => handleSendMessage(e)}
+                  disabled={isLoading || isAnalyzing || !inputMessage.trim()}
+                  className={`rounded-full p-2 transition ${
+                    inputMessage.trim()
+                      ? "bg-blue-600 text-white hover:bg-blue-700"
+                      : isDark
+                      ? "bg-slate-700 text-slate-500"
+                      : "bg-slate-100 text-slate-400"
+                  } disabled:cursor-not-allowed`}
+                  title="Send message"
+                >
+                  <Send className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
           </div>
+
+          {/* File Manager Modal */}
+          <FileManagerModal
+            isOpen={isFileModalOpen}
+            onClose={() => setIsFileModalOpen(false)}
+            onFilesConfirm={handleFilesConfirm}
+            onUploadFile={handleFileModalUpload}
+          />
         </div>
       )}
     </div>
